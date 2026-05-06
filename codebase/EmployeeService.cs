@@ -237,3 +237,58 @@ namespace TubeHR.Foundation.Services
         public int PageSize { get; set; }
     }
 }
+
+
+
+/*
+
+# 程式碼分析：找出效能瓶頸和資料一致性風險
+1. 首先對DB的IO是效能的瓶頸所在
+var existing = await _context.Employees
+                        .FirstOrDefaultAsync(e => e.EmployeeNumber == empNo);
+要放在 while 之前，先查詢所有的員工 像是 var employees = await _context.Employees.ToListAsync();
+之後再 while 內是使用 employees.FirstOrDefault(e => e.EmployeeNumber == empNo) 這樣就不會每一次都查詢DB了
+#region AI建議
+
+AI提到 有 company Id 這個參數
+所以應該改為
+var existingEmployees = await _context.Employees
+    .Where(e => e.CompanyId == companyId && empNos.Contains(e.EmployeeNumber))
+    .ToDictionaryAsync(e => e.EmployeeNumber);
+
+並且迴圈內改為
+if (existingEmployees.TryGetValue(empNo, out var existing))
+{
+    existing.BaseSalary = salary;
+    existing.ModifyOn = now;
+    existing.ModifyBy = operatorId;
+}
+else
+{
+    var emp = new Employee { ... };
+    _context.Employees.Add(emp);
+    existingEmployees[empNo] = emp;
+}
+
+#endregion AI建議
+
+再來是匯入有些成功有些失敗的問題
+await _context.SaveChangesAsync(); 應該放在 while 迴圈外面，等整個CSV都處理完了再一次性儲存，這樣就不會有部分成功部分失敗的狀況了
+
+
+但整體來說我會選擇
+1. 先讀資料，解析資料，存成資料暫存結構，像是 List<Employee> 或 Dictionary<string, Employee> 之類的
+2. 之後一次性查詢DB，找出已經存在的員工，然後更新資料暫存結構裡的員工物件；不存在則新增
+3. 最後在一次性儲存到DB，這樣就不會有部分成功部分失敗的問題了
+
+#region AI補充
+因為 add employee 的同時也要防止工號重複而寫入 NumberSummary 表 ，為了避免NumberSummary duplicate key
+
+3. 最後在一次性儲存到DB，這樣就不會有部分成功部分失敗的問題了
+NumberSummary 也要放進同一個 transaction 裡一起寫入，不能跟 Employee 分開成功或失敗。
+#endregion AI補充
+
+
+# 改善方案
+上面已有回答
+ */
